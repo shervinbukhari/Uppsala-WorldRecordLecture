@@ -1,0 +1,463 @@
+---
+title: "Mark Project: First Draft"
+author: "Shervin Bukhari^[Corresponding author: shervin.bukhari@psykologi.uio.no, Forskningsveien 3A, Harald Schjelderups hus, 0373 Oslo] [^PSI] [^NORMENT] [^UU], Mark Thompson[^UK] , Elisa de Mello e Souza Meth[^UU] , Christian Benedict[^UU] "
+date: "`r format(Sys.Date(), '%d %B %Y')`"
+output:
+  pdf_document:
+    extra_dependencies: ["float","flafter"]
+  word_document: default
+  html_document: default
+---
+[^PSI]: Department of Psychology, University of Oslo, Oslo, Norway
+[^UU]: Department of Surgical Sciences, Sleep Science Laboratory, Uppsala University, Uppsala, Sweden
+[^NORMENT]:Norwegian Centre for Mental Disorders Research (NORMENT), Oslo University Hospital, Oslo, Norway.
+[^UK]:University of East Anglia, Norwich, United Kingdom
+
+# Introduction
+
+# Methods
+
+
+```{r setup, include=FALSE, echo=FALSE}
+# SETUP AND LOAD PACKAGES
+
+knitr::opts_chunk$set(fig.width=6, fig.height=3, fig.path='figs/',
+                      echo=FALSE, warning=FALSE, message=FALSE, fig.pos = "!H", out.extra = "", dpi=300)
+library(knitr)
+library(plyr)
+library(dplyr)
+library(readxl)
+library(ggplot2)
+library(rmarkdown)
+library(cowplot)
+library(readr)
+library(forcats)
+library(corrplot)
+library(plotrix)
+library(nlme)
+library(lme4)
+library(lmerTest)
+library(stargazer)
+library(ggpubr)
+library(ggprism)
+library(RColorBrewer)
+library(sjPlot)
+library(htmlTable)
+library(emmeans)
+library(metan)
+# LOAD ALL DATA FILES (TIMELINE, SURVEY, KSSPANAS + PVT)
+timeline<-read_xlsx("/home/shervin/Documents/GitStuff/Uppsala_MTfacestudy/timeline.xlsx")
+dt<-read_xlsx("/home/shervin/Documents/GitStuff/Uppsala_MTfacestudy/MTdata_workfile.xlsx", sheet="Organized")
+KSS_data <- read_xlsx("/home/shervin/Documents/GitStuff/Uppsala_MTfacestudy/KSS_PANAS_MT.xlsx")
+PVT_data <- read_xlsx("/home/shervin/Documents/GitStuff/Uppsala_MTfacestudy/MTPVT_res.xlsx")
+
+# Read survey response data from .xlsx sheet organized into long-format. Verified to contain correct data with "Processing_data.R" script.
+dt$PicOrder <- as.numeric(dt$PicOrder) 
+# adding a column for naps taken so that we can use this as a factor
+dt<-dt %>% mutate(naps_taken = 
+case_when(PicOrder <= 3 ~ "0",
+          PicOrder >= 4 & PicOrder <= 6  ~  "1",
+          PicOrder >= 7 & PicOrder <= 9 ~ "2",
+          PicOrder >= 10 & PicOrder <= 11 ~ "3")
+             )
+#Calculate hours since last sleep
+dt<- dt %>% mutate(hrsincesleep =
+case_when(
+                  Elapsed_Time == 0 ~ 2,
+                  Elapsed_Time == 13.083 ~ 14.083,
+                  Elapsed_Time == 25 ~ 27,
+                  Elapsed_Time == 38.583 ~ 40.583,
+                  Elapsed_Time == 48.65 ~ 4.05,
+                  Elapsed_Time == 60.916 ~ 16.55,
+                  Elapsed_Time == 73.366 ~ 29.98,
+                  Elapsed_Time == 95.833 ~ 8.133,
+                  Elapsed_Time == 108.416 ~ 20.72,
+                  Elapsed_Time == 123.166 ~ 35.4,
+                  Elapsed_Time == 133.666 ~ 2.663,
+                  Elapsed_Time == 141.566 ~ 10.53))
+                   
+
+#Add a binary variable for if he had drunk coffee or not - after 111 hours.
+dt$Caffeine<- if_else(dt$Elapsed_Time >= 111.7, 1,0)
+
+
+#For each photograph, add the closest KSS and PVT measure data to dt
+
+
+#SET COLOR PALETTE
+palette=c("#FE9929","#08306B")#"#CC4C02","#FED98E" "#FE9929" 
+###Exclude invalid responses from survey data
+
+#Exclude responses taking more than 10 minutes (as per instructions)
+dt<-dt %>% filter(600>dt$`Duration (in seconds)`) 
+#Exclude responses that are not "No" to if they have done the study before
+dt<-dt %>%filter(grepl('No',`survey_before`))
+#Exclude responses with fraud score above threshold >=30
+dt <- dt %>% filter(30>=dt$Q_RelevantIDFraudScore)
+#Exclude responses with ID duplicate =true (likely duplicate)
+dt<-dt %>% filter(!grepl('true',`Q_RelevantIDDuplicate`))
+#Exclude >=75 duplicate scores (likely duplicate)
+dt %>% filter(75>=dt$Q_RelevantIDDuplicateScore)
+#Exclude if sex is not male or female
+dt<-dt %>%filter(grepl('Male|Female',`Sex`))
+#Make variables into correct format for analysis and plotting
+dt$Age<-as.numeric(dt$Age)
+dt$Sex<-factor(dt$Sex)
+dt$Gender<-factor(dt$Gender)
+dt$Sleeplastnight<-as.numeric(dt$Sleeplastnight)
+dt$VAS_sleepy <- as.numeric(dt$VAS_sleepy)
+# Rating variables
+dt$Marks_age <- as.numeric(dt$Marks_age)
+dt$VAS_stressed <- as.numeric(dt$VAS_stressed)
+dt$VAS_tired <- as.numeric(dt$VAS_tired)
+dt$VAS_attractive <- as.numeric(dt$VAS_attractive)
+dt$VAS_healthy <- as.numeric(dt$VAS_healthy)
+dt$VAS_resemblance <- as.numeric(dt$VAS_resemblance)
+dt$VAS_trustworthy <- as.numeric(dt$VAS_trustworthy)
+dt$VAS_scary <- as.numeric(dt$VAS_scary)
+dt$survey_before<-factor(dt$survey_before)
+dt$know_him <- factor(dt$know_him)
+dt$Elapsed_Time <- as.numeric(dt$Elapsed_Time)
+dt$Circadian_Phase <-factor(dt$Circadian_Phase)
+dt$naps_taken <-factor(as.factor(dt$naps_taken))
+dt$Circadian_Phase<-as.factor(dt$Circadian_Phase)
+
+#
+PVT_data$Session=factor(PVT_data$Session)
+PVT_data$Circadian_Phase=factor(PVT_data$Circadian_Phase)
+PVT_data$Day=factor(PVT_data$Day)
+
+KSS_data$Session=factor(KSS_data$Session)
+KSS_data$PHASE=factor(KSS_data$PHASE)
+KSS_data$Day=factor(KSS_data$Day)
+```
+# Results
+```{r,echo=FALSE}
+# Plot Age Distribution for whole survey sample
+p<-ggplot(dt, aes(x=Age)) + 
+  geom_histogram(color="black", fill="white", bins=100) +
+  geom_density(alpha=0.7) +
+  labs(x="Rater Age", y="Count")
+p
+
+p_absage<-ggplot(dt, aes(x=absage_diff)) + 
+  geom_histogram(color="black", fill="white", bins=100) +
+  geom_density(alpha=0.7) +
+  labs(x="Rater Absolute Age Difference", y="Count")
+p_absage
+
+```
+More descriptive plots of survey data
+```{r,echo=FALSE}
+p2<-ggplot(data=dt, aes(x=Sex), xName="Sex", fill="white") +
+  geom_bar()
+p2
+
+p3 <- ggplot(data=dt, aes(x=Gender),xName="Gender", fill="white")+
+  geom_bar()
+p3
+
+p4 <- ggplot(data=dt, aes(x=Sleeplastnight))+
+geom_histogram(color="black", fill="white", bins=20)+
+labs(x="Rater Sleep Previous Night")
+p4
+
+p5<-ggplot(data=dt, aes(x=VAS_sleepy))+
+geom_histogram(color="black", fill="white", bins=10)+
+labs(x="Rater Sleepiness")
+p5
+```
+
+```{r,include = FALSE, echo = FALSE}
+
+#Compute mean and sd for all response variables splitting by Elapsed_Time
+# Create baseline corrected variable for each measure by subtracting mean of first time point.
+
+markage<- dt %>% group_by(Elapsed_Time, hrsincesleep, Circadian_Phase) %>% summarise(m_markage=mean(Marks_age), sd_markage =sd(Marks_age), se_markage=std.error(Marks_age))
+
+attr<-dt %>% group_by(Elapsed_Time, Circadian_Phase) %>% summarise(m_attr=mean(VAS_attractive), sd_attr =sd(VAS_attractive),se_attr=std.error(VAS_attractive))
+
+hlthy<- dt %>% group_by(Elapsed_Time, hrsincesleep, Circadian_Phase) %>% summarise(m_hlthy=mean(VAS_healthy), sd_hlthy =sd(VAS_healthy), se_hlthy=std.error(VAS_healthy))
+
+strss<-dt %>% group_by(Elapsed_Time, Circadian_Phase) %>% summarise(m_strss=mean(VAS_stressed), sd_strss =sd(VAS_stressed),se_strss=std.error(VAS_stressed))
+
+scry<-dt %>% group_by(Elapsed_Time,hrsincesleep,  Circadian_Phase) %>% summarise(m_scry=mean(VAS_scary), sd_scry =sd(VAS_scary), se_scry=std.error(VAS_scary))
+
+rsmblc<-dt %>% group_by(Elapsed_Time,hrsincesleep,  Circadian_Phase) %>% summarise(m_rsmblc=mean(VAS_resemblance), sd_rsmblc =sd(VAS_resemblance), se_rsmblc=std.error(VAS_resemblance))
+
+trd <-dt %>% group_by(Elapsed_Time,hrsincesleep,  Circadian_Phase) %>% summarise(m_trd=mean(VAS_tired), sd_trd =sd(VAS_tired), se_trd=std.error(VAS_tired))
+
+trstwrthy <-dt %>% group_by(Elapsed_Time, Circadian_Phase) %>% summarise(m_trstwrthy=mean(VAS_trustworthy), sd_trstwrthy =sd(VAS_trustworthy), se_trstwrthy=std.error(VAS_trustworthy))
+
+dt$Marks_age_minus <-dt$Marks_age-47.92574
+dt$VAS_attractive_minus <-dt$VAS_attractive-2.881188 #mean attractiveness at 0
+dt$VAS_healthy_minus <- dt$VAS_healthy-4.440000 # mean healthy at 0 
+dt$VAS_scary_minus<- dt$VAS_scary-2.920792 #mean scariness at 0
+dt$VAS_stressed_minus<-dt$VAS_stressed-5.574257 #mean stressed at 0
+dt$VAS_tired_minus<-dt$VAS_tired-5.712871 #mean tired at 0
+dt$VAS_trustworthy_minus<-dt$VAS_trustworthy-5.257426 #mean trustworthy at 0
+dt <- dt %>% mutate(Caffeine = if_else(Elapsed_Time > 111, 1, 0))
+dt_bl <- subset(dt,Elapsed_Time>0)
+
+markage_bl<- dt_bl %>% group_by(Elapsed_Time,hrsincesleep, Circadian_Phase) %>% summarise(m_markage=mean(Marks_age_minus), sd_markage =sd(Marks_age_minus), se_markage=std.error(Marks_age_minus)) 
+
+attr_bl<- dt_bl %>% group_by(Elapsed_Time,hrsincesleep,  Circadian_Phase) %>% summarise(m_attr=mean(VAS_attractive_minus), sd_attr =sd(VAS_attractive_minus), se_attr=std.error(VAS_attractive_minus))
+                                                                              
+hlthy_bl<- dt_bl %>% group_by(Elapsed_Time, hrsincesleep, Circadian_Phase) %>% summarise(m_hlthy=mean(VAS_healthy_minus), sd_hlthy =sd(VAS_healthy_minus), se_hlthy=std.error(VAS_healthy_minus)) 
+
+scry_bl<- dt_bl %>% group_by(Elapsed_Time, hrsincesleep,Circadian_Phase) %>% summarise(m_scry=mean(VAS_scary_minus), sd_scry =sd(VAS_scary_minus), se_markage=std.error(VAS_scary_minus)) 
+
+strss_bl<- dt_bl %>% group_by(Elapsed_Time, hrsincesleep, Circadian_Phase) %>% summarise(m_strss=mean(VAS_stressed_minus), sd_strss =sd(VAS_stressed_minus), se_strss=std.error(VAS_stressed_minus)) 
+
+trd_bl<- dt_bl %>% group_by(Elapsed_Time, hrsincesleep, Circadian_Phase) %>% summarise(m_trd=mean(VAS_tired_minus), sd_trd =sd(VAS_tired_minus), se_trd=std.error(VAS_tired_minus)) 
+
+trstwrthy_bl<- dt_bl %>% group_by(Elapsed_Time, hrsincesleep, Circadian_Phase) %>% summarise(m_trstwrthy=mean(VAS_trustworthy_minus), sd_trstwrthy =sd(VAS_trustworthy_minus), se_trstwrthy=std.error(VAS_trustworthy_minus)) 
+
+
+```
+Plotting distribution of ratings, plain - not split by any individual factor or condition
+```{r Descriptive plots, echo=FALSE}
+d_age <-ggplot(dt, aes(x=Marks_age))+
+  geom_histogram(color="black", fill="white", bins=100)+
+  labs(x="Marks estimated age",y="Count")
+d_age
+
+d_trd <-ggplot(dt, aes(x=VAS_tired))+
+  geom_histogram(color="black", fill="white", bins=10)+
+  labs(x="Marks rated tiredness",y="Count")
+d_trd
+
+d_hlthy <-ggplot(dt, aes(x=VAS_healthy))+
+  geom_histogram(color="black", fill="white", bins=10)+
+    labs(x="Marks rated healthiness",y="Count")
+d_hlthy
+
+d_attr <-ggplot(dt, aes(x=VAS_attractive))+
+  geom_histogram(color="black", fill="white", bins=10)+
+    labs(x="Marks rated attractiveness",y="Count")
+d_attr
+
+d_trstwrthy <-ggplot(dt, aes(x=VAS_trustworthy))+
+  geom_histogram(color="black", fill="white", bins=10)
+d_trstwrthy
+
+
+d_strss <-ggplot(dt, aes(x=VAS_stressed))+
+geom_histogram(color="black", fill="white", bins=10)
+    labs(x="Marks rated stress",y="Count")
+d_strss
+
+
+d_scry <-ggplot(dt, aes(x=VAS_scary))+
+geom_histogram(color="black", fill="white", bins=10)
+    labs(x="Marks rated scariness",y="Count")
+d_scry
+
+d_rsmblc<-ggplot(dt, aes(x=VAS_resemblance))+
+  geom_histogram(color="black", fill="white", bins=10)+
+#  geom_density(color="black", fill="white", alpha=0.5)
+    labs(x="Marks rated resemblance",y="Count")
+d_rsmblc
+
+```
+Raincloud plots baseline corrected
+```{r,raincloud_plots, echo=FALSE}
+
+# Mark's Age baseline corrected
+raincloud_age_bl<-ggplot(dt_bl, aes(x = Elapsed_Time, y = Marks_age_minus, group = Elapsed_Time, colour=Circadian_Phase))+
+#  geom_flat_violin(aes(fill = Elapsed_Time),position = position_nudge(x = .1, y = 0), adjust = 1.5, trim = TRUE, colour = NA,alpha=0.6)+
+  geom_point(aes(x = as.numeric(Elapsed_Time)-2, y = Marks_age_minus),position = position_jitter(seed=1,width = 2),size = 3, shape = 20, alpha=.3)+
+  geom_boxplot(aes(x = as.numeric(Elapsed_Time), y = Marks_age_minus, group = Elapsed_Time), width = 7, outlier.shape = NA,alpha=0.4)+
+geom_errorbar(data = markage_bl, aes(x = as.numeric(Elapsed_Time)+.1, y = as.numeric(m_markage), ymin = as.numeric(m_markage-sd_markage), ymax = as.numeric(m_markage+sd_markage), width = 5), size=1 )+
+geom_point(data = markage_bl, aes(x = as.numeric(Elapsed_Time)+.1, y = as.numeric(m_markage)), shape = 15)+
+  geom_vline(xintercept=c(42.620, 85.950, 129.300), size=.75)+
+#  geom_hline(yintercept=c(48), size=1, linetype=2)+
+ggtitle("")+
+labs(x="Time (Hrs)",y="Estimated Age")+
+theme_bw()+
+theme(legend.position = "right",legend.title = element_blank(),legend.key = element_blank(),panel.border = element_blank(), panel.background = element_blank())+
+scale_colour_manual(values=palette)
+raincloud_age_bl
+
+raincloud_trd_bl<-ggplot(dt_bl, aes(x = Elapsed_Time, y = VAS_tired_minus, group = Elapsed_Time, colour=Circadian_Phase))+
+#  geom_flat_violin(aes(fill = Elapsed_Time),position = position_nudge(x = .1, y = 0), adjust = 1.5, trim = TRUE, colour = NA,alpha=0.6)+
+  geom_point(aes(x = as.numeric(Elapsed_Time)-2, y = VAS_tired_minus),position = position_jitter(seed=1,width = 2),size = 3, shape = 20, alpha=.3)+
+  geom_boxplot(aes(x = as.numeric(Elapsed_Time), y = VAS_tired_minus, group = Elapsed_Time), width = 7, outlier.shape = NA,alpha=0.4)+
+geom_errorbar(data = trd_bl, aes(x = as.numeric(Elapsed_Time)+.1, y = as.numeric(m_trd), ymin = as.numeric(m_trd-sd_trd), ymax = as.numeric(m_trd+sd_trd), width = 5), size=1 )+
+geom_point(data = trd_bl, aes(x = as.numeric(Elapsed_Time)+.1, y = as.numeric(m_trd)), shape = 15)+
+  geom_vline(xintercept=c(42.620, 85.950, 129.300), size=.75)+
+#  geom_hline(yintercept=c(48), size=1, linetype=2)+
+ggtitle("")+
+labs(x="Time (Hrs)",y="Tiredness")+
+theme_bw()+
+theme(legend.position = "right",legend.title = element_blank(),legend.key = element_blank(),panel.border = element_blank(), panel.background = element_blank())+
+scale_colour_manual(values=palette)
+raincloud_trd_bl
+
+
+boxplot_trd<- ggplot(dt_bl, aes(x = Elapsed_Time, y = VAS_tired_minus, group = Elapsed_Time, colour=Circadian_Phase))+geom_boxplot(aes(x = as.numeric(Elapsed_Time), y = VAS_tired_minus, group = Elapsed_Time), width = 7, outlier.shape = NA,alpha=0.4)+
+geom_errorbar(data = trd_bl, aes(x = as.numeric(Elapsed_Time)+.1, y = as.numeric(m_trd), ymin = as.numeric(m_trd-sd_trd), ymax = as.numeric(m_trd+sd_trd), width = 5), size=1 )+
+geom_point(data = trd_bl, aes(x = as.numeric(Elapsed_Time)+.1, y = as.numeric(m_trd)), shape = 15)+
+  geom_vline(xintercept=c(42.620, 85.950, 129.300), size=.75)+
+#  geom_hline(yintercept=c(48), size=1, linetype=2)+
+ggtitle("")+
+labs(x="Time (Hrs)",y="Tiredness")+
+theme_bw()+
+theme(legend.position = "right",legend.title = element_blank(),legend.key = element_blank(),panel.border = element_blank(), panel.background = element_blank())+
+scale_colour_manual(values=palette)
+boxplot_trd
+
+```
+
+Cross correlation matrix for all ratings, not split by time.
+```{r, correlation plot, echo=FALSE}
+corr_dt <- dt %>% select(VAS_sleepy,VAS_stressed,VAS_tired,VAS_trustworthy,VAS_attractive,VAS_attractive,VAS_healthy,VAS_scary,VAS_resemblance, Elapsed_Time, Marks_age)
+corrmat <- cor(corr_dt)
+cp_raw<-corrplot(corrmat, title="",type="lower" ,    method='color',    addCoef.col = "black", tl.col="black", tl.srt=45, sig.level = 0.005, insig = "blank", number.cex = 0.5)
+```
+
+Linear model for Age
+```{r, echo=FALSE}
+## Check older versions of script for different models
+# VAS sleepiness has better predictive power than hours Slept
+# Age is better than absolute age difference or age difference
+model_age1a<- lm(data=dt, Marks_age~Age + Sex + VAS_sleepy + Elapsed_Time) 
+model_age1b<- lm(data=dt, Marks_age~Age + Sex + VAS_sleepy + Circadian_Phase) 
+summary(model_age1a)
+summary(model_age1b)
+model_age1c<-lm(data=dt, Marks_age~Age + Sex + VAS_sleepy + Elapsed_Time + Circadian_Phase)
+model0_age<-lm(data=dt, Marks_age~Age + Sex + VAS_sleepy + Elapsed_Time + Circadian_Phase) 
+summary(model0_age)
+#Neither Elapsed Time or Circadian Phase are significant on their own
+model_age2<-lm(data=dt,Marks_age~Sex+Age+VAS_sleepy+naps_taken+Circadian_Phase+Elapsed_Time)
+
+model_age4<-lm(data=dt,Marks_age~Sex+Age+VAS_sleepy+naps_taken+Circadian_Phase+Elapsed_Time+Circadian_Phase*Elapsed_Time+Elapsed_Time*naps_taken)
+
+
+model_age5<-lm(data=dt,Marks_age~Sex+Age+VAS_sleepy+Sleeplastnight+Elapsed_Time+Circadian_Phase+naps_taken)
+summary(model_age5)
+
+model_age6<-lm(data=dt,Marks_age~Sex+Age+VAS_sleepy+Sleeplastnight+Elapsed_Time+Elapsed_Time*VAS_sleepy)
+summary(model_age6)
+
+summary(model_age2)
+#summary(model_age3)
+summary(model_age4)
+summary(model_age6)
+summary(model_age1c)
+anova(model_age4)
+emmeans(model_age4, pairwise ~Elapsed_Time*naps_taken)
+```   
+Generalized Linear Model for Tiredness, Attractiveness, Health
+```{r, echo=FALSE}
+#TIRED
+model0_trd<-lm(data=dt, VAS_tired~Age + Sex + VAS_sleepy + Elapsed_Time + Circadian_Phase) 
+summary(model0_trd)
+model1_trd <-glm(data=dt, VAS_tired~Sex+Age+VAS_sleepy+naps_taken+Circadian_Phase+Elapsed_Time)
+summary(model1_trd)
+model2_trd<-glm(dat=dt, VAS_tired~Sex+Age+VAS_sleepy+naps_taken+Circadian_Phase+Elapsed_Time+Circadian_Phase*Elapsed_Time+Elapsed_Time*naps_taken)
+summary(model2_trd)
+
+
+model0_attr<-lm(data=dt, VAS_attractive~Age + Sex + VAS_sleepy + Elapsed_Time + Circadian_Phase) 
+summary(model0_attr)
+model1_attr<-glm(data=dt, VAS_attractive~Sex+Age+VAS_sleepy+naps_taken+Circadian_Phase+Elapsed_Time)
+summary(model1_attr)
+model2_attr<-glm(dat=dt, VAS_attractive~Sex+Age+VAS_sleepy+naps_taken+Circadian_Phase+Elapsed_Time+Circadian_Phase*Elapsed_Time+Elapsed_Time*naps_taken)
+summary(model2_attr)
+
+model0_hlthy<-lm(data=dt, VAS_healthy~Age + Sex + VAS_sleepy + Elapsed_Time + Circadian_Phase) 
+summary(model0_hlthy)
+model1_hlthy<-glm(data=dt, VAS_healthy~Sex+Age+VAS_sleepy+naps_taken+Circadian_Phase+Elapsed_Time)
+summary(model1_hlthy)
+model2_hlthy<-glm(data=dt, VAS_healthy~Sex+Age+VAS_sleepy+naps_taken+Circadian_Phase+Elapsed_Time+Circadian_Phase*Elapsed_Time+Elapsed_Time*naps_taken)
+summary(model2_hlthy)
+
+model1_stressed<-glm(data=dt, VAS_stressed~Sex+Age+VAS_sleepy+naps_taken+Circadian_Phase+Elapsed_Time)
+summary(model1_stressed)
+model2_stressed<-glm(data=dt,VAS_stressed~Sex+Age+VAS_sleepy+naps_taken+Circadian_Phase+Elapsed_Time+Circadian_Phase*Elapsed_Time+Elapsed_Time*naps_taken)
+summary(model2_stressed)
+
+
+model1_scary<-glm(data=dt, VAS_scary~Sex+Age+VAS_sleepy+naps_taken+Circadian_Phase+Elapsed_Time)
+summary(model1_scary)
+model2_scary<-glm(data=dt,VAS_scary~Sex+Age+VAS_sleepy+naps_taken+Circadian_Phase+Elapsed_Time+Circadian_Phase*Elapsed_Time+Elapsed_Time*naps_taken)
+summary(model2_scary)
+
+model0_trustworthy<-glm(data=dt, VAS_trustworthy~Sex+Age+VAS_sleepy+Circadian_Phase+Elapsed_Time+VAS_resemblance)
+summary(model0_trustworthy)
+model1_trustworthy<-glm(data=dt, VAS_trustworthy~Sex+Age+VAS_sleepy+naps_taken+Circadian_Phase+Elapsed_Time+VAS_resemblance)
+summary(model1_trustworthy)
+model2_trustworthy<-glm(data=dt,VAS_trustworthy~Sex+Age+VAS_sleepy+naps_taken+Circadian_Phase+Elapsed_Time+VAS_resemblance+Circadian_Phase*Elapsed_Time+Elapsed_Time*naps_taken)
+summary(model2_trustworthy)
+```
+
+#ANOVA OF NAPS
+```{r}
+
+dt_anova<- dt %>% mutate(before_after =
+case_when(
+                  Elapsed_Time == 38.583 ~ 0,
+                  Elapsed_Time == 48.65 ~ 1,
+                  Elapsed_Time == 73.366 ~ 0,
+                  Elapsed_Time == 95.833 ~ 1,
+                  Elapsed_Time == 123.166 ~ 0,
+                  Elapsed_Time == 133.666 ~ 1))
+
+naps_age<-aov(Marks_age~before_after+Age+Sex+VAS_sleepy+Elapsed_Time,dt_anova)
+naps_age<-lm(Marks_age~before_after+Age+Sex+VAS_sleepy+Elapsed_Time+naps_taken,dt_anova)
+naps_trd<-aov(VAS_tired~before_after+Age+Sex+VAS_sleepy+Elapsed_Time,dt_anova)
+naps_attr<-aov(VAS_attractive~before_after+Age+Sex+VAS_sleepy+Elapsed_Time,dt_anova)
+naps_hlthy<-aov(VAS_healthy~before_after+Age+Sex+VAS_sleepy+Elapsed_Time,dt_anova)
+naps_trstwrthy<-aov(VAS_trustworthy~before_after+Age+Sex+VAS_sleepy+Elapsed_Time+VAS_resemblance,dt_anova)
+
+TukeyHSD(naps_age, naps_taken)
+
+```
+
+Plotting Model results
+```{r}
+set_theme(base=theme_bw(), axis.ticksize.x = 1.5, axis.ticksize.y= 1.5,axis.title.size = 2.5, title.size =0, panel.bordercol = "white")
+plot_age<- plot_model(model_age2, type="pred", terms="Elapsed_Time", axis.title = c("Time (Hrs)", "Estimated Age")) 
+plot_age
+plot_model(model_age2)
+plot_tired<- plot_model(model1_trd, type="pred", terms="Elapsed_Time", axis.title = c("Time (Hrs)", "Tiredness")) 
+plot_healthy<-plot_model(model1_hlthy, type="pred", terms="Elapsed_Time", axis.title = c("Time (Hrs)", "Healthiness"))
+plot_tired
+plot_healthy
+ggarrange(plot_tired,plot_healthy,labels="A","B", ncol = 2, nrow = 2)
+
+plot_model(model2_trustworthy, type="pred",terms="Elapsed_Time", axis.title = c("Time (Hrs)", "Trustworthyness"))
+
+```
+#Make Tables
+```{r}
+outp1<-tab_model(model_age2)#,model_age4)
+
+outp2<-tab_model(model1_attr,model1_hlthy,model1_trd)
+
+outp3<-tab_model(model2_attr,model2_hlthy,model2_trd)
+
+outp4<-tab_model(model1_trustworthy)#,model2_trustworthy)
+
+pvalues<-c(summary(model_age2)$coefficients[,4],summary(model1_attr)$coefficients[,4],summary(model1_hlthy)$coefficients[,4],summary(model1_trd)$coefficients[,4],summary(model1_trustworthy)$coefficients[,4])
+
+pvalues<-p.adjust(pvalues, method = "fdr", n=length(pvalues))
+pvalues
+
+p_anova<-c(summary(naps_age)[[1]][1:6,5], summary(naps_trd)[[1]][1:6,5],summary(naps_attr)[[1]][1:6,5],summary(naps_hlthy)[[1]][1:6,5],summary(naps_trstwrthy)[[1]][1:6,5])
+p_anova<-p.adjust(p_anova, method = "fdr", n=length(p_anova))
+```
+
+```{r}
+dt_anova<-subset(dt_anova, before_after== 0 | before_after== 1)
+t<-ggplot(data = dt_anova, aes(x=before_after, y =Marks_age , colour = before_after)) + 
+  geom_point()
+
+
+age_naps_eff<- dt_anova %>%group_by(before_after) %>% summarise(m=mean(Marks_age), s=sd(Marks_age))
+hlthy_naps_eff<-dt_anova %>%group_by(before_after) %>% summarise(m=mean(VAS_healthy),s= sd(VAS_healthy))
+```
+
+
+
